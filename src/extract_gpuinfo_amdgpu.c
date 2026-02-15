@@ -712,9 +712,12 @@ static void gpuinfo_amdgpu_refresh_dynamic_info(struct gpu_info *_gpu_info) {
     last_libdrm_return_status = 1;
   if (!last_libdrm_return_status) {
     if (gpu_info->base.static_info.integrated_graphics) {
-      SET_GPUINFO_DYNAMIC(dynamic_info, total_memory, memory_info.vram.total_heap_size + memory_info.gtt.total_heap_size);
+      SET_GPUINFO_DYNAMIC(dynamic_info, total_memory,
+                          memory_info.vram.total_heap_size + memory_info.gtt.total_heap_size);
       SET_GPUINFO_DYNAMIC(dynamic_info, used_memory, memory_info.vram.heap_usage + memory_info.gtt.heap_usage);
-      SET_GPUINFO_DYNAMIC(dynamic_info, free_memory, memory_info.vram.total_heap_size + memory_info.gtt.total_heap_size - dynamic_info->used_memory);
+      SET_GPUINFO_DYNAMIC(dynamic_info, free_memory,
+                          memory_info.vram.total_heap_size + memory_info.gtt.total_heap_size -
+                              dynamic_info->used_memory);
     } else {
       SET_GPUINFO_DYNAMIC(dynamic_info, total_memory, memory_info.vram.total_heap_size);
       SET_GPUINFO_DYNAMIC(dynamic_info, used_memory, memory_info.vram.heap_usage);
@@ -787,6 +790,12 @@ static void gpuinfo_amdgpu_refresh_dynamic_info(struct gpu_info *_gpu_info) {
       SET_GPUINFO_DYNAMIC(dynamic_info, power_draw_max, powerCap / 1000);
     }
   }
+
+  // AMDGPU does not expose encode/decode utilization through DRM sensor queries.
+  // Set baseline to 0; actual per-process usage will be aggregated in
+  // gpuinfo_fix_dynamic_info_from_process_info.
+  SET_GPUINFO_DYNAMIC(dynamic_info, encoder_rate, 0);
+  SET_GPUINFO_DYNAMIC(dynamic_info, decoder_rate, 0);
 }
 
 static const char drm_amdgpu_pdev_old[] = "pdev";

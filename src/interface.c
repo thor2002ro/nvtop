@@ -2305,12 +2305,8 @@ void print_snapshot(struct list_head *devices, bool use_fahrenheit_option) {
     // PCIe bandwidth (KiB/s)
     if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, pcie_rx))
       printf("%s\"pcie_rx\": \"%uKiB/s\",\n", indent_level_four, device->dynamic_info.pcie_rx);
-    else
-      printf("%s\"pcie_rx\": null,\n", indent_level_four);
     if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, pcie_tx))
       printf("%s\"pcie_tx\": \"%uKiB/s\",\n", indent_level_four, device->dynamic_info.pcie_tx);
-    else
-      printf("%s\"pcie_tx\": null,\n", indent_level_four);
 
     // Effective load rate
     if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, effective_load_rate))

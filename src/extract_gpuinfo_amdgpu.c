@@ -126,6 +126,7 @@ struct gpu_info_amdgpu {
 
   // We poll the fan frequently enough and want to avoid the open/close overhead of the sysfs file
   FILE *fanSpeedFILE; // FILE* for this device current fan speed
+  FILE *fanRPMFILE;   // FILE* for raw RPM reading (always fan1_input)
   FILE *powerCap;     // FILE* for this device power cap
 
   // gpu_metrics sysfs file descriptor for non-blocking PCIe bandwidth reading
@@ -253,6 +254,9 @@ static void gpuinfo_amdgpu_shutdown(void) {
 
     if (gpu_info->fanSpeedFILE)
       fclose(gpu_info->fanSpeedFILE);
+    // Only close if it's a separate file handle (not shared with fanSpeedFILE)
+    if (gpu_info->fanRPMFILE && gpu_info->fanRPMFILE != gpu_info->fanSpeedFILE)
+      fclose(gpu_info->fanRPMFILE);
     if (gpu_info->gpuMetricsFD >= 0)
       close(gpu_info->gpuMetricsFD);
     if (gpu_info->PCIeBW)
@@ -350,15 +354,32 @@ static void initDeviceSysfsPaths(struct gpu_info_amdgpu *gpu_info) {
 
     // Look for which fan to use (PWM or RPM)
     gpu_info->fanSpeedFILE = NULL;
+    gpu_info->fanRPMFILE = NULL;
     unsigned pwmIsEnabled;
     int NreadPatterns = readAttributeFromDevice(gpu_info->hwmonDevice, "pwm1_enable", "%u", &pwmIsEnabled);
     bool usePWMSensor = NreadPatterns == 1 && pwmIsEnabled > 0;
 
     bool useRPMSensor = false;
-    if (!usePWMSensor) {
+    // When pwm1_enable=2 (automatic), the driver/firmware controls the fan
+    // directly and pwm1 often reads 0 regardless of actual speed.
+    // Prefer fan1_input (RPM tachometer) which always reflects reality.
+    if (usePWMSensor && pwmIsEnabled == 2) {
+      // Check if RPM tachometer is available and readable
+      unsigned rpmCheck;
+      NreadPatterns = readAttributeFromDevice(gpu_info->hwmonDevice, "fan1_input", "%u", &rpmCheck);
+      if (NreadPatterns == 1) {
+        unsigned rpmMax;
+        NreadPatterns = readAttributeFromDevice(gpu_info->hwmonDevice, "fan1_max", "%u", &rpmMax);
+        if (NreadPatterns == 1 && rpmMax > 0) {
+          usePWMSensor = false;
+          useRPMSensor = true;
+        }
+      }
+    }
+    if (!usePWMSensor && !useRPMSensor) {
       unsigned rpmIsEnabled;
       NreadPatterns = readAttributeFromDevice(gpu_info->hwmonDevice, "fan1_enable", "%u", &rpmIsEnabled);
-      useRPMSensor = NreadPatterns && rpmIsEnabled > 0;
+      useRPMSensor = NreadPatterns == 1 && rpmIsEnabled > 0;
     }
     // Either RPM or PWM or neither
     assert((useRPMSensor ^ usePWMSensor) || (!useRPMSensor && !usePWMSensor));
@@ -378,6 +399,21 @@ static void initDeviceSysfsPaths(struct gpu_info_amdgpu *gpu_info) {
         }
       }
     }
+
+    // Always try to open fan1_input for raw RPM display, independent of
+    // which sensor is used for percentage calculation.
+    // If fanSpeedFILE already reads fan1_input (useRPMSensor), reuse it.
+    if (useRPMSensor && gpu_info->fanSpeedFILE) {
+      gpu_info->fanRPMFILE = gpu_info->fanSpeedFILE;
+    } else {
+      int fanRPMFD = openat(hwmonFD, "fan1_input", O_RDONLY);
+      if (fanRPMFD >= 0) {
+        gpu_info->fanRPMFILE = fdopen(fanRPMFD, "r");
+        if (!gpu_info->fanRPMFILE)
+          close(fanRPMFD);
+      }
+    }
+
     // Open the power cap file for dynamic info gathering
     gpu_info->powerCap = NULL;
     int powerCapFD = openat(hwmonFD, "power1_cap", O_RDONLY);
@@ -664,6 +700,13 @@ static void gpuinfo_amdgpu_populate_static_info(struct gpu_info *_gpu_info) {
     if (nReadPatterns == 1) {
       SET_GPUINFO_STATIC(static_info, temperature_shutdown_threshold, emergencyTemp);
     }
+
+    // Fan RPM max (for UI display alongside percentage)
+    unsigned fanRPMMax;
+    nReadPatterns = readAttributeFromDevice(gpu_info->hwmonDevice, "fan1_max", "%u", &fanRPMMax);
+    if (nReadPatterns == 1 && fanRPMMax > 0) {
+      SET_GPUINFO_STATIC(static_info, fan_rpm_max, fanRPMMax);
+    }
   }
 
   nvtop_pcie_link max_link_characteristics;
@@ -798,6 +841,23 @@ static void gpuinfo_amdgpu_refresh_dynamic_info(struct gpu_info *_gpu_info) {
   }
   if (patternsMatched == 1) {
     SET_GPUINFO_DYNAMIC(dynamic_info, fan_speed, currentFanSpeed * 100 / gpu_info->maxFanValue);
+  }
+
+  // Fan RPM (raw tachometer reading)
+  if (gpu_info->fanRPMFILE) {
+    unsigned currentRPM;
+    // If fanRPMFILE is the same as fanSpeedFILE (RPM sensor used for both),
+    // reuse the value we already read instead of reading the file again.
+    if (gpu_info->fanRPMFILE == gpu_info->fanSpeedFILE) {
+      if (patternsMatched == 1) {
+        SET_GPUINFO_DYNAMIC(dynamic_info, fan_rpm, currentFanSpeed);
+      }
+    } else {
+      patternsMatched = rewindAndReadPattern(gpu_info->fanRPMFILE, "%u", &currentRPM);
+      if (patternsMatched == 1) {
+        SET_GPUINFO_DYNAMIC(dynamic_info, fan_rpm, currentRPM);
+      }
+    }
   }
 
   // Device power usage

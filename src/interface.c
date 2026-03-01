@@ -19,9 +19,9 @@
  *
  */
 
+#include "nvtop/interface.h"
 #include "nvtop/common.h"
 #include "nvtop/extract_gpuinfo_common.h"
-#include "nvtop/interface.h"
 #include "nvtop/interface_common.h"
 #include "nvtop/interface_internal_common.h"
 #include "nvtop/interface_layout_selection.h"
@@ -43,7 +43,7 @@
 #include <unistd.h>
 
 static unsigned int sizeof_device_field[device_field_count] = {
-    [device_name] = 11,       [device_fan_speed] = 11,   [device_temperature] = 10, [device_power] = 15,
+    [device_name] = 11,       [device_fan_speed] = 26,   [device_temperature] = 10, [device_power] = 15,
     [device_clock] = 11,      [device_mem_clock] = 12,   [device_pcie] = 46,        [device_shadercores] = 7,
     [device_l2features] = 11, [device_execengines] = 11,
 };
@@ -761,8 +761,19 @@ static void draw_devices(struct list_head *devices, struct nvtop_interface *inte
 
     // FAN
     if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, fan_speed)) {
-      mvwprintw(dev->fan_speed, 0, 0, " FAN %3u%%  ",
-                device->dynamic_info.fan_speed > 100 ? 100 : device->dynamic_info.fan_speed);
+      if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, fan_rpm) &&
+          GPUINFO_STATIC_FIELD_VALID(&device->static_info, fan_rpm_max)) {
+        mvwprintw(dev->fan_speed, 0, 0, " FAN %3u%% [%u/%u RPM]",
+                  device->dynamic_info.fan_speed > 100 ? 100 : device->dynamic_info.fan_speed,
+                  device->dynamic_info.fan_rpm, device->static_info.fan_rpm_max);
+      } else if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, fan_rpm)) {
+        mvwprintw(dev->fan_speed, 0, 0, " FAN %3u%% [%u RPM]",
+                  device->dynamic_info.fan_speed > 100 ? 100 : device->dynamic_info.fan_speed,
+                  device->dynamic_info.fan_rpm);
+      } else {
+        mvwprintw(dev->fan_speed, 0, 0, " FAN %3u%%  ",
+                  device->dynamic_info.fan_speed > 100 ? 100 : device->dynamic_info.fan_speed);
+      }
       mvwchgat(dev->fan_speed, 0, 1, 3, 0, cyan_color, NULL);
     } else if (device->static_info.integrated_graphics) {
       mvwprintw(dev->fan_speed, 0, 0, "  CPU-FAN  ");

@@ -2226,17 +2226,30 @@ void print_snapshot(struct list_head *devices, bool use_fahrenheit_option) {
       printf("%s\"temp\": null,\n", indent_level_four);
     }
 
-    // Fan speed (percentage or RPM)
-    if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, fan_speed))
+    // Fan speed (percentage or RPM fallback)
+    if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, fan_speed)) {
       printf("%s\"fan_speed\": \"%u%%\",\n", indent_level_four,
              device->dynamic_info.fan_speed > 100 ? 100 : device->dynamic_info.fan_speed);
-    else if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, fan_rpm))
-      printf("%s\"fan_speed\": \"%uRPM\",\n", indent_level_four,
-             device->dynamic_info.fan_rpm > 9999 ? 9999 : device->dynamic_info.fan_rpm);
-    else if (device->static_info.integrated_graphics)
+    } else if (device->static_info.integrated_graphics) {
       printf("%s\"fan_speed\": \"CPU Fan\",\n", indent_level_four);
-    else
+    } else {
       printf("%s\"fan_speed\": null,\n", indent_level_four);
+    }
+
+    // Fan RPM (raw data)
+    if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, fan_rpm)) {
+      printf("%s\"fan_rpm\": \"%u\",\n", indent_level_four,
+             device->dynamic_info.fan_rpm > 9999 ? 9999 : device->dynamic_info.fan_rpm);
+    } else {
+      printf("%s\"fan_rpm\": null,\n", indent_level_four);
+    }
+
+    // Fan RPM Max
+    if (GPUINFO_STATIC_FIELD_VALID(&device->static_info, fan_rpm_max)) {
+      printf("%s\"fan_rpm_max\": \"%u\",\n", indent_level_four, device->static_info.fan_rpm_max);
+    } else {
+      printf("%s\"fan_rpm_max\": null,\n", indent_level_four);
+    }
 
     // Power draw (current and max)
     if (GPUINFO_DYNAMIC_FIELD_VALID(&device->dynamic_info, power_draw))
